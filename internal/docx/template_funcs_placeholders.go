@@ -254,12 +254,25 @@ func (d *documentMeta) replaceTableCellBgColors(srcXML string) string {
 	tcRe := regexp.MustCompile(`(?s)<w:tc>.*?</w:tc>`)
 
 	output := tcRe.ReplaceAllStringFunc(srcXML, func(block string) string {
-		hexRe := regexp.MustCompile(`\[\[TABLE_CELL_BG_COLOR:#?([0-9A-Fa-f]{6})\]\]`)
+		// Accept 3 or 6 hex digits; expand 3-digit to 6-digit.
+		hexRe := regexp.MustCompile(`\[\[TABLE_CELL_BG_COLOR:#?([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})\]\]`)
+		emptyPlaceholderRe := regexp.MustCompile(`\[\[TABLE_CELL_BG_COLOR(?::\s*)?\]\]`)
 		hexMatch := hexRe.FindStringSubmatch(block)
 		if len(hexMatch) < 2 {
+			// If there is an empty placeholder (no color), strip it to avoid leaking tokens
+			if emptyPlaceholderRe.MatchString(block) {
+				block = emptyPlaceholderRe.ReplaceAllString(block, "")
+				block = strings.ReplaceAll(block, "<w:r><w:t></w:t></w:r>", "")
+			}
 			return block
 		}
-		hex := hexMatch[1]
+		hex := strings.TrimPrefix(hexMatch[1], "#")
+		if len(hex) == 3 {
+			// Expand #RGB -> #RRGGBB
+			hex = strings.ToLower(hex)
+			hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
+		}
+		hex = strings.ToUpper(hex)
 
 		if !regexp.MustCompile(`(?i)<w:shd[^>]*?/>`).MatchString(block) {
 			block = strings.Replace(block, withoutShading, withShading, 1)
